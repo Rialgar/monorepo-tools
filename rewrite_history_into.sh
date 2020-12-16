@@ -9,14 +9,33 @@
 # Example: rewrite_history_into.sh packages/alpha
 # Example: rewrite_history_into.sh main-repository --branches
 
+while getopts p: flag
+do
+    case "${flag}" in
+        p) PREFIX="$OPTARG";;
+    esac
+done
+shift "$(($OPTIND-1))"
+
 SUBDIRECTORY=$1
 REV_LIST_PARAMS=${@:2}
 echo "Rewriting history into a subdirectory '$SUBDIRECTORY'"
+
+if [ -z "$PREFIX" ]; then
+    TAG_NAME_FILTER='cat'
+else
+    TAG_NAME_FILTER='echo "';
+    TAG_NAME_FILTER+=$PREFIX;
+    TAG_NAME_FILTER+='-$(cat)"'
+fi
+
+echo "$TAG_NAME_FILTER"
+
 # All paths in the index are prefixed with a subdirectory and the index is updated
 # Previous index file is replaced by a new one (otherwise each file would be in the index twice)
 # The tags are rewritten as well as commits (the "cat" command will use original name without any change)
 SUBDIRECTORY_SED=${SUBDIRECTORY//-/\\-} TAB=$'\t' git filter-branch \
     --index-filter '
     git ls-files -s | sed "s-$TAB\"*-&$SUBDIRECTORY_SED/-" | GIT_INDEX_FILE=$GIT_INDEX_FILE.new git update-index --index-info && if [ -f "$GIT_INDEX_FILE.new" ]; then mv "$GIT_INDEX_FILE.new" "$GIT_INDEX_FILE"; fi' \
-    --tag-name-filter 'cat' \
+    --tag-name-filter "$TAG_NAME_FILTER" \
     -- $REV_LIST_PARAMS
