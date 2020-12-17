@@ -38,8 +38,8 @@ if [ "$USE_PREFIX" = 'true' ] && [ "$#" -gt "1" ]; then
         echo 'Prefixing tags only works when adding one new repository at a time'
         echo 'Make sure only the tags of the new repository are available locally and add each individually'
         exit
-    fi
 fi
+
 
 echo "Will merge these branches from the specified remotes: $BRANCHES"
 
@@ -59,12 +59,14 @@ for PARAM in $@; do
     fi
     echo "Building branches '$BRANCHES' of the remote '$REMOTE'"    
     REMOTES="$REMOTES $REMOTE"
-    REFLIST="";
-    for BRANCH in $BRANCHES; do
-        git checkout --detach $REMOTE/$BRANCH
-        git checkout -b "monorepo_temp/$REMOTE/$BRANCH"
-        REFLIST="$REFLIST monorepo_temp/$REMOTE/$BRANCH"
+    
+    REFLIST=""
+    for BRANCH in $(git branch -r --list "$REMOTE/*"); do
+        git checkout --detach $BRANCH
+        git checkout -b "monorepo_temp/$BRANCH"
+        REFLIST="$REFLIST monorepo_temp/$BRANCH"
     done
+
     if [ "$USE_PREFIX" = 'true' ]; then
         $MONOREPO_SCRIPT_DIR/rewrite_history_into.sh -p $REMOTE $SUBDIRECTORY $REFLIST
     else
@@ -85,4 +87,11 @@ for BRANCH in $BRANCHES; do
         git merge -q monorepo_temp/$REMOTE/$BRANCH --allow-unrelated-histories -m "$COMMIT_MSG"
         git reset --hard
     done
+    for REMOTE in $REMOTES; do        
+        git branch -m monorepo_temp/$REMOTE/$BRANCH monorepo_merged/$REMOTE/$BRANCH
+    done
+done
+
+for BRANCH in $(git branch --list "monorepo_temp/*"); do
+    git branch -m $BRANCH monorepo_unmerged/${BRANCH#monorepo_temp/}
 done
