@@ -9,6 +9,23 @@
 #
 # Example: monorepo_add.sh additional-repository package-gamma:packages/gamma package-delta:packages/delta
 
+BRANCHES=""
+USE_PREFIX='false'
+while getopts 'b:p' flag
+do
+    case "${flag}" in
+        b) BRANCHES="$BRANCHES $OPTARG";;
+        p) USE_PREFIX='true';;
+    esac
+done
+shift "$(($OPTIND-1))"
+
+
+if [ -z "$BRANCHES" ]
+then
+    BRANCHES="master"
+fi
+
 # Check provided arguments
 if [ "$#" -lt "1" ]; then
     echo 'Please provide at least 1 remote to be added into an existing monorepo'
@@ -16,10 +33,22 @@ if [ "$#" -lt "1" ]; then
     echo 'Example: monorepo_add.sh additional-repository package-gamma:packages/gamma package-delta:packages/delta'
     exit
 fi
+
+if [ "$USE_PREFIX" = 'true' ] && [ "$#" -gt "1" ]; then
+        echo 'Prefixing tags only works when adding one new repository at a time'
+        echo 'Make sure only the tags of the new repository are available locally and add each individually'
+        exit
+fi
+
+
+echo "Will merge these branches from the specified remotes: $BRANCHES"
+
 # Get directory of the other scripts
 MONOREPO_SCRIPT_DIR=$(dirname "$0")
 # Wipe original refs (possible left-over back-up after rewriting git history)
 $MONOREPO_SCRIPT_DIR/original_refs_wipe.sh
+
+REMOTES=""
 for PARAM in $@; do
     # Parse parameters in format <remote-name>[:<subdirectory>]
     PARAM_ARR=(${PARAM//:/ })
@@ -28,24 +57,41 @@ for PARAM in $@; do
     if [ "$SUBDIRECTORY" == "" ]; then
         SUBDIRECTORY=$REMOTE
     fi
-    echo "Building branch 'master' of the remote '$REMOTE'"
-    git checkout --detach $REMOTE/master
-    $MONOREPO_SCRIPT_DIR/rewrite_history_into.sh $SUBDIRECTORY
-    MERGE_REFS="$MERGE_REFS $(git rev-parse HEAD)"
+    echo "Building branches '$BRANCHES' of the remote '$REMOTE'"    
+    REMOTES="$REMOTES $REMOTE"
+    
+    REFLIST=""
+    for BRANCH in $(git branch -r --list "$REMOTE/*"); do
+        git checkout --detach $BRANCH
+        git checkout -b "monorepo_temp/$BRANCH"
+        REFLIST="$REFLIST monorepo_temp/$BRANCH"
+    done
+
+    if [ "$USE_PREFIX" = 'true' ]; then
+        $MONOREPO_SCRIPT_DIR/rewrite_history_into.sh -p $REMOTE $SUBDIRECTORY $REFLIST
+    else
+        $MONOREPO_SCRIPT_DIR/rewrite_history_into.sh $SUBDIRECTORY $REFLIST
+    fi
+
     # Wipe the back-up of original history
     $MONOREPO_SCRIPT_DIR/original_refs_wipe.sh
 done
-# Merge all master branches
-COMMIT_MSG="merge multiple repositories into an existing monorepo"$'\n'$'\n'"- merged using: 'monorepo_add.sh $@'"$'\n'"- see https://github.com/shopsys/monorepo-tools"
-git checkout master
-echo "Merging refs: $MERGE_REFS"
-git merge --no-commit -q $MERGE_REFS --allow-unrelated-histories
-echo 'Resolving conflicts using trees of all parents'
-for REF in $MERGE_REFS; do
-    # Add all files from all master branches into index
-    # "git read-tree" with multiple refs cannot be used as it is limited to 8 refs
-    git ls-tree -r $REF | git update-index --index-info
-done
-git commit -m "$COMMIT_MSG"
-git reset --hard
 
+# Merge all requested branches
+for BRANCH in $BRANCHES; do
+    git checkout $BRANCH
+    for REMOTE in $REMOTES; do                
+        COMMIT_MSG="merge multiple repositories into a monorepo"$'\n'$'\n'"- merged using: 'monorepo_build.sh $@'"$'\n'"- see https://github.com/shopsys/monorepo-tools"
+        echo "Merging $REMOTE/$BRANCH into $BRANCH"
+        echo "git merge -q monorepo_temp/$REMOTE/$BRANCH --allow-unrelated-histories --no-verify -m '$COMMIT_MSG'"
+        git merge -q monorepo_temp/$REMOTE/$BRANCH --allow-unrelated-histories --no-verify -m "$COMMIT_MSG"
+        git reset --hard
+    done
+    for REMOTE in $REMOTES; do        
+        git branch -m monorepo_temp/$REMOTE/$BRANCH monorepo_merged/$REMOTE/$BRANCH
+    done
+done
+
+for BRANCH in $(git branch --list "monorepo_temp/*"); do
+    git branch -m $BRANCH monorepo_unmerged/${BRANCH#monorepo_temp/}
+done
