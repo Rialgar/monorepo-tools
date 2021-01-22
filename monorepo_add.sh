@@ -83,8 +83,8 @@ for BRANCH in $BRANCHES; do
     for REMOTE in $REMOTES; do                
         COMMIT_MSG="merge multiple repositories into a monorepo"$'\n'$'\n'"- merged using: 'monorepo_build.sh $@'"$'\n'"- see https://github.com/shopsys/monorepo-tools"
         echo "Merging $REMOTE/$BRANCH into $BRANCH"
-        echo "git merge -q monorepo_temp/$REMOTE/$BRANCH --allow-unrelated-histories -m '$COMMIT_MSG'"
-        git merge -q monorepo_temp/$REMOTE/$BRANCH --allow-unrelated-histories -m "$COMMIT_MSG"
+        echo "git merge -q monorepo_temp/$REMOTE/$BRANCH --allow-unrelated-histories --no-verify -m '$COMMIT_MSG'"
+        git merge -q monorepo_temp/$REMOTE/$BRANCH --allow-unrelated-histories --no-verify -m "$COMMIT_MSG"
         git reset --hard
     done
     for REMOTE in $REMOTES; do        
